@@ -17,18 +17,22 @@ from model_gens.utils.price_predictor import PricePredictor
 
 
 class Preprocessor:
-    def __init__(self, path=None, target_column=None, processing_type=ProcessingType.INITIAL):
+    def __init__(self, path=None, target_column=None, processing_type=ProcessingType.INITIAL, load_csv=True):
         self.path = path
         self.currency = 'BTCUSDT'
         self.processing_type = processing_type
         self.target_column = target_column
-        self.scaler = MinMaxScaler(feature_range=(0, 1))
+        self.scaler_X = MinMaxScaler(feature_range=(0, 1))
+        self.scaler_y = MinMaxScaler(feature_range=(0, 1))
         self._data = pd.DataFrame()
         self._open_close_diff = pd.Series(dtype=float)
-        self._load_data()
+        self._load_csv = load_csv
+        if load_csv:
+            self._load_data()
 
     # Data loading methods
     def _load_data(self):
+        print(f"Loading data for {self.processing_type.name.lower()}...")
         if self.processing_type == ProcessingType.INITIAL:
             if os.path.isfile(self.path):
                 self._load_data_file()
@@ -43,6 +47,7 @@ class Preprocessor:
     def _load_data_file(self):
         try:
             print(f"Reading data from {self.path}...")
+            data = None
             if self.processing_type == ProcessingType.INITIAL:
                 data = pd.read_csv(self.path, parse_dates=True, index_col=0)
                 self._post_process_data(data)
@@ -83,29 +88,30 @@ class Preprocessor:
         print('Data post processing complete.')
 
     def _ensure_required_columns(self, data):
-        if self.processing_type == ProcessingType.INITIAL:
-            required_columns = [Columns.Open.name, Columns.High.name,
-                                Columns.Low.name, Columns.Close.name, Columns.Volume.name]
-            if not all(col in data.columns for col in required_columns):
-                missing = set(required_columns) - set(data.columns)
-                raise ValueError(f"Missing required columns: {missing}")
-        elif self.processing_type == ProcessingType.TRAINING:
-            if self.target_column == Columns.Open:
-                required_columns = [Columns.Open.name, Columns.High.name,
-                                    Columns.Low.name, Columns.Close.name, Columns.Open_Close_Diff.name]
-            elif self.target_column == Columns.Close:
-                required_columns = [Columns.Open.name, Columns.High.name,
-                                    Columns.Low.name, Columns.Close.name, 'expected_next_close', 'true_close_diff']
-            elif self.target_column == Columns.High:
-                required_columns = [Columns.Open.name, Columns.High.name,
-                                    Columns.Low.name, Columns.Close.name, 'expected_next_high', 'true_high_diff']
-            elif self.target_column == Columns.Low:
-                required_columns = [Columns.Open.name, Columns.High.name,
-                                    Columns.Low.name, Columns.Close.name, 'expected_next_low', 'true_low_diff']
-            if not all(col in data.columns for col in required_columns):
-                missing = set(required_columns) - set(data.columns)
-                raise ValueError(f"Missing required columns: {missing}")
+        base_required_columns = [
+            Columns.Open.name, 
+            Columns.High.name, 
+            Columns.Low.name, 
+            Columns.Close.name, 
+            Columns.Volume.name
+        ]
+        additional_columns = {
+            Columns.Open: [Columns.Open_Close_Diff.name],
+            Columns.Close: ['expected_next_close', 'true_close_diff'],
+            Columns.High: ['expected_next_high', 'true_high_diff'],
+            Columns.Low: ['expected_next_low', 'true_low_diff'],
+        }
 
+        if self.processing_type == ProcessingType.INITIAL:
+            required_columns = base_required_columns
+        elif self.processing_type == ProcessingType.TRAINING:
+            specific_columns = additional_columns.get(self.target_column, [])
+            required_columns = base_required_columns + specific_columns
+
+        missing = set(required_columns) - set(data.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        
     def _drop_unnecessary_columns(self, data):
         columns_to_drop = ["Change", 'Open Interest']
         data.drop(
@@ -147,12 +153,6 @@ class Preprocessor:
     def preprocess_data_for_training(self):
         return self.prepare_dataset()
 
-    def scale_data(self, data=None):
-        if data is None:
-            data = self._data
-        self.scaler.fit(data)
-        return self.scaler.transform(data)
-
     def calculate_open_close_difference(self):
         if self._data.empty:
             raise ValueError("Data is empty.")
@@ -172,39 +172,15 @@ class Preprocessor:
         if self.target_column is None:
             raise ValueError("Target column not specified.")
 
+        true_diff_str = f'true_{self.target_column.name.lower()}_diff'
         # Separate the target column
-        y = self._data[self.target_column.name]
+        y = self._data[true_diff_str]
         y.fillna(0, inplace=True)
         
-        # Create the feature matrix X by dropping the target column
-        expected_str = f'expected_next_{self.target_column.name.lower()}'
-        true_diff_str = f'true_{self.target_column.name.lower()}_diff'
-        X = self._data.drop(columns=[expected_str, true_diff_str, Columns.Open_Close_Diff.name])
+        X = self._data.drop(columns=[true_diff_str, Columns.Open_Close_Diff.name])
         
         X.fillna(0, inplace=True)
         return X, y
-
-    # def prepare_features(self, data, features, lags):
-    #     print(data)
-    #     # Create the feature matrix X with lagged values
-    #     X = pd.concat([data[feature].shift(lag)
-    #                   for feature in features for lag in lags], axis=1)
-
-    #     print(X)
-
-    #     # Forward-fill and backward-fill to handle NaN values
-    #     X.ffill(inplace=True)
-    #     X.bfill(inplace=True)
-
-    #     # Create the target vector y
-    #     y = data[self.target_column.name]
-
-    #     # Ensure X and y have the same length
-    #     if y is not None:
-    #         X = X.iloc[max(lags):-1]
-    #         y = y.iloc[max(lags):-1]
-
-    #     return X, y
 
     def train_regression_model(self, X, y):
         model = LinearRegression().fit(X, y)
@@ -212,43 +188,6 @@ class Preprocessor:
 
     def predict_value(self, model, features):
         return model.intercept_ + np.dot(model.coef_, features)
-
-    # def analyze_and_predict(self, lags=range(1, 60)):
-    #     target_feature = self.target_column.name
-    #     features = ['Open', 'High', 'Low', 'Close', 'Volume']
-    #     self._data[f'expected_next_{target_feature.lower()}'] = np.nan
-    #     self._data[f'true_{target_feature.lower()}_diff'] = np.nan
-
-    #     for i in tqdm(range(len(self._data) - max(lags)), desc=f"Analyzing and predicting {target_feature}"):
-    #         X, y = self.prepare_features()
-
-    #         model = self.train_regression_model(X, y)
-
-    #         next_X = self._data.iloc[i][features].values
-    #         predicted_value = self.predict_value(model, next_X)
-
-    #         self._data.at[self._data.index[i], f'expected_next_{
-    #             target_feature.lower()}'] = predicted_value
-    #         if i < len(self._data) - 1:
-    #             true_next_value = self._data.iloc[i + 1][target_feature]
-    #             self._data.at[self._data.index[i], f'true_{
-    #                 target_feature.lower()}_diff'] = true_next_value - predicted_value
-
-    #     self.save_predictions(
-    #         self._data.iloc[max(lags):], target_feature.lower())
-    #     return self._data.iloc[max(lags):]
-
-    def analyze_and_predict_low(self, lags=range(1, 60)):
-        self.target_column = Columns.Low
-        return self.analyze_and_predict(lags)
-
-    def analyze_and_predict_high(self, lags=range(1, 60)):
-        self.target_column = Columns.High
-        return self.analyze_and_predict(lags)
-
-    def analyze_and_predict_close(self, lags=range(1, 60)):
-        self.target_column = Columns.Close
-        return self.analyze_and_predict(lags)
 
     def save_predictions(self, data, target_feature):
         directory = os.path.join(
@@ -334,38 +273,37 @@ class Preprocessor:
         data = self.add_technical_indicators(data, indicators)
         y = data.pop(
             f'true_{self.target_column.name.lower()}_diff').ffill().bfill()
-        data = data.drop(columns=[
-                         Columns.Close.name, Columns.Open_Close_Diff.name], errors='ignore').ffill().bfill()
-        self._validate_data(data, y)
-        return data, y
+        X = data.ffill().bfill()
+        self._validate_data(X, y)
+        return X, y
 
-    def high_low_price_features(self):
-        data = self._data[~self._data.index.duplicated(keep='first')]
-        data = self.analyze_and_predict()
-        return self.process_data(data)
+    def price_features(self):
+        return self.process_data()
 
     def split_data_for_high_low(self, data):
-        return self.process_data(data)
-
+        return self.process_data()
+    
     def prepare_dataset(self, time_step=60):
         if self.target_column == Columns.Open:
             X, y = self.open_close_diff_features()
-        elif self.target_column == Columns.Close:
-            X, y = self.close_price_data_processor()
-        elif self.target_column in [Columns.High, Columns.Low]:
-            X, y = self.high_low_price_features()
+        elif self.target_column in [Columns.High, Columns.Low, Columns.Close]:
+            X, y = self.price_features()
+            print(f"X columns: {X.columns}, y shape: {y.shape}")
         else:
             raise ValueError("Invalid target column specified.")
 
         if self.processing_type == ProcessingType.TRAINING:
-            self.scaler.fit(X)
-            X = self.scaler.transform(X)
-            y = self.scaler.transform(y.values.reshape(-1, 1)).flatten()
+            self.scaler_X.fit(X)
+            X_scaled = self.scaler_X.transform(X)
+            self.scaler_y.fit(y.values.reshape(-1, 1))
+            y_scaled = self.scaler_y.transform(y.values.reshape(-1, 1)).flatten()
+        else:
+            X_scaled = self.scaler_X.transform(X)
+            y_scaled = self.scaler_y.transform(y.values.reshape(-1, 1)).flatten()
 
-        X_seq, y_seq = self.create_sequences(
-            pd.DataFrame(X), pd.Series(y), time_step)
+        X_seq, y_seq = self.create_sequences(pd.DataFrame(X_scaled), pd.Series(y_scaled), time_step)
+        return self.split_train_test(X_seq, y_seq) if self.processing_type == ProcessingType.TRAINING else (X_seq, y_seq)
 
-        return (self.split_train_test(X_seq, y_seq) if self.processing_type == ProcessingType.TRAINING else (X_seq, y_seq))
 
     def create_sequences(self, data_X, data_y, time_step=60):
         X, y = [], []
@@ -406,17 +344,17 @@ class Preprocessor:
         # Save the data
         data = self._data[-steps:]
         data.to_csv(filename, index=True)
-
+        
     def output_decoder(self, predictions, data, column_name):
         if len(predictions.shape) == 1:
             predictions = predictions.reshape(-1, 1)
+        
         print(f"Column name: {column_name}")
         print(f"Predictions (scaled): {predictions}")
-        placeholder = np.zeros((predictions.shape[0], data.shape[1]))
-        placeholder[:, -1] = predictions.flatten()
+        
+        # Use the scaler_y to inverse transform the predictions
         try:
-            predicted_prices = self.scaler.inverse_transform(placeholder)[
-                :, -1]
+            predicted_prices = self.scaler_y.inverse_transform(predictions).flatten()
             return predicted_prices
         except Exception as e:
             print(f"Error during inverse transformation: {e}")
@@ -424,11 +362,13 @@ class Preprocessor:
 
     def save_scaler(self, scaler_filename):
         with open(scaler_filename, 'wb') as f:
-            pickle.dump(self.scaler, f)
+            pickle.dump(self.scaler_X, f)
+            pickle.dump(self.scaler_y, f)
 
     def load_scaler(self, scaler_filename):
         with open(scaler_filename, 'rb') as f:
-            self.scaler = pickle.load(f)
+            self.scaler_X = pickle.load(f)
+            self.scaler_y = pickle.load(f)
 
     def _calculate_sma(self):
         attr = getattr(self, f"_{self.target_column.name.lower()}")

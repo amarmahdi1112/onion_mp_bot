@@ -6,35 +6,47 @@ from model_gens.utils.static.columns import Columns
 from model_gens.utils.static.model_type import ModelType
 from model_gens.market_predictor_base import MarketPredictorBase
 from model_gens import lstm_model_gen, gru_model_gen
+from model_gens.utils.static.processing_type import ProcessingType
 from typing import Union
 import pandas as pd
 
 
 class ModelTrainer:
-    def __init__(self, model_class, model_type, data_path, asset_name='XAUUSD'):
+    def __init__(
+        self, 
+        model_class, 
+        model_type, 
+        data_path, 
+        asset_name='XAUUSD', 
+        processing_type=ProcessingType.TRAINING
+    ):
         self.model_class = model_class
         self.model_type: ModelType = model_type
         self.asset_name = asset_name
+        self.target_column = None
+        self.processing_type = processing_type
         self.market_predictor: Union[
             MarketPredictorBase, lstm_model_gen.LSTMModel, gru_model_gen.GRUModel
         ] = model_class(base_data_path=data_path)
         
     def train(self, skip_existing=False):
-        self.market_predictor.preprocessor.save_last_steps(60)
         # Remove duplicates and maintain order if necessary
-        columns = list(set([Columns.Low, Columns.Close]))
+        columns = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
 
         for column in columns:
-            if self._skip_column_training(column, skip_existing):
+            self.target_column = column
+            self.market_predictor.preprocessor.target_column = column
+            self.market_predictor.preprocessor._load_data()
+            if self._skip_column_training(skip_existing):
                 continue
 
             print(f"Processing {
                   column.name} - {columns.index(column) + 1}/{len(columns)}")
-            self._train_and_save_model(column)
+            self._train_and_save_model()
 
-    def _skip_column_training(self, column, skip_existing):
+    def _skip_column_training(self, skip_existing):
         history = self.market_predictor.model_history.get_last_training_date(
-            model_table=self.model_type, model_type=column.name.upper())
+            model_table=self.model_type, model_type=self.target_column.name.upper())
         last_data_date, _ = history
         last_data_date = pd.to_datetime(last_data_date) if isinstance(
             last_data_date, str) else last_data_date
@@ -44,21 +56,20 @@ class ModelTrainer:
             print("Model has already been trained on the latest data.")
             return True
 
-        model_path, _, _, _, _ = self._generate_paths(column)
+        model_path, _, _, _, _ = self._generate_paths()
         if skip_existing and os.path.exists(f'{model_path}.h5'):
-            print(f"Skipping {column.name} as model already exists.")
+            print(f"Skipping {self.target_column.name} as model already exists.")
             return True
 
         return False
 
-    def _train_and_save_model(self, column):
-        X_train, X_test, y_train, y_test = self.market_predictor.preprocessor.prepare_dataset(
-            target=column, processed=True)
+    def _train_and_save_model(self):
+        X_train, X_test, y_train, y_test = self.market_predictor.preprocessor.prepare_dataset()
         model = self.market_predictor.train_model(
             X_train, y_train, X_test, y_test)
 
         model_path, scaler_path, shape_path, scaler_name, shape_name = self._generate_paths(
-            column)
+            self.target_column)
         self.market_predictor.save_models(model, model_path)
         self.market_predictor.preprocessor.save_scaler(
             scaler_filename=scaler_path)
@@ -67,8 +78,8 @@ class ModelTrainer:
         self.market_predictor.model_history.insert_new_training_data(
             model_table=self.model_type,
             model_name=f'{self.asset_name}_{self.model_type.value.lower()}_{
-                column.name.lower()}',
-            model_type=column.name,
+                self.target_column.name.lower()}',
+            model_type=self.target_column.name,
             data_date=str(latest_data_date),
             model_date=str(datetime.now()),
             model_path=os.path.relpath(model_path, BASE_DIR),
@@ -79,20 +90,19 @@ class ModelTrainer:
             notes='Training completed'
         )
 
-    def _generate_paths(self, column):
-        model_subdir, scaler_subdir, shape_subdir = self._get_subdirectories(
-            column)
+    def _generate_paths(self):
+        model_subdir, scaler_subdir, shape_subdir = self._get_subdirectories()
 
         self._ensure_directory_exists(model_subdir)
         self._ensure_directory_exists(scaler_subdir)
         self._ensure_directory_exists(shape_subdir)
 
         model_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            column.name.lower()}.h5'
+            self.target_column.name.lower()}.h5'
         scaler_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            column.name.lower()}_scaler.pkl'
+            self.target_column.name.lower()}_scaler.pkl'
         shape_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            column.name.lower()}_shape.pkl'
+            self.target_column.name.lower()}_shape.pkl'
 
         model_path = os.path.join(model_subdir, model_filename)
         scaler_path = os.path.join(scaler_subdir, scaler_filename)
@@ -100,13 +110,13 @@ class ModelTrainer:
 
         return model_path, scaler_path, shape_path, scaler_filename, shape_filename
 
-    def _get_subdirectories(self, column):
+    def _get_subdirectories(self):
         base_model_path = f'models/{self.asset_name.lower()
-                                    }/{self.model_type.value.lower()}/{column.name.lower()}'
+                                    }/{self.model_type.value.lower()}/{self.target_column.name.lower()}'
         base_scaler_path = f'models/{self.asset_name.lower()}/scalers/{
-            self.model_type.value.lower()}/{column.name.lower()}'
+            self.model_type.value.lower()}/{self.target_column.name.lower()}'
         base_shape_path = f'models/{self.asset_name.lower()}/shapes/{
-            self.model_type.value.lower()}/{column.name.lower()}'
+            self.model_type.value.lower()}/{self.target_column.name.lower()}'
 
         model_subdir = os.path.join(BASE_DIR, base_model_path)
         scaler_subdir = os.path.join(BASE_DIR, base_scaler_path)

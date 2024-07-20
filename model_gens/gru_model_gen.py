@@ -9,13 +9,22 @@ from settings import BASE_DIR
 from model_gens.utils.model_training_tracker import ModelType
 from keras.models import load_model  # type: ignore
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau  # type: ignore
+from model_gens.utils.static.processing_type import ProcessingType
 
 
 class GRUModel(MarketPredictorBase):
-    def __init__(self, base_data_path, new_data_path=None):
+    def __init__(
+        self, 
+        base_data_path, 
+        new_data_path=None, 
+        processing_type=ProcessingType.TRAINING,
+        load_csv=False
+    ):
         super().__init__(
             base_data_path=base_data_path,
-            new_data_path=new_data_path
+            new_data_path=new_data_path,
+            processing_type=processing_type,
+            load_csv=load_csv
         )
         self.model = None
 

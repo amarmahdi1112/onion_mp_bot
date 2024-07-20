@@ -50,15 +50,15 @@ def main():
     if args.test:
         run_tests()
     else:
-        data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/combined.csv')
 
         configure_memory_growth()
         memory_limit_mb = 3072
         configure_memory_fraction(memory_limit_mb)
 
-        os.system('cls' if os.name == 'nt' else 'clear')
+        # os.system('cls' if os.name == 'nt' else 'clear')
 
         if args.action == 'train':
+            data_path = os.path.join(BASE_DIR, 'Datas\BTCUSDT\preprocessed_data')
             # Train LSTM model
             lstm_trainer = ModelTrainer(model_class=LSTMModel, model_type=ModelType.LSTM, data_path=data_path)
             lstm_trainer.train()
@@ -67,6 +67,7 @@ def main():
             gru_trainer = ModelTrainer(model_class=GRUModel, model_type=ModelType.GRU, data_path=data_path)
             gru_trainer.train()
         elif args.action == 'process':
+            data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/combined.csv')
             initial_preprocessor = Preprocessor(data_path, processing_type=ProcessingType.INITIAL)
             initial_preprocessor.preprocess_data_for_initial()
 

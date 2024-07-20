@@ -24,16 +24,26 @@ import joblib
 from tensorflow.keras.optimizers import Adam  # type: ignore
 import os
 from model_gens.utils.preprocessor import Preprocessor
+from model_gens.utils.static.processing_type import ProcessingType
 
 
 class MarketPredictorBase(ABC):
-    def __init__(self, base_data_path, new_data_path, db_path=f'{BASE_DIR}/model_gens/db/model_training.db'):
+    def __init__(
+        self, 
+        base_data_path, 
+        new_data_path, 
+        db_path=f'{BASE_DIR}/model_gens/db/model_training.db', 
+        processing_type=ProcessingType.INITIAL,
+        load_csv=True
+    ):
         """Initializes the base class with common attributes for the market predictor."""
         self.model_history = ModelTrainingTracker(db_name=db_path)
-        self.preprocessor = Preprocessor(path=base_data_path)
+        self.processing_type = processing_type
+        print(f"Processing type: {self.processing_type}")
+        self.load_csv = load_csv
+        self.preprocessor = Preprocessor(path=base_data_path, processing_type=self.processing_type, load_csv=self.load_csv)
         self.new_preprocessor = None
         self.predicted_prices = None
-
         if new_data_path:
             self.new_preprocessor = Preprocessor(path=new_data_path)
 
