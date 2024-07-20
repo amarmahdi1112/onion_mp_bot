@@ -50,7 +50,7 @@ class PricePredictor:
             if i < len(self.data) - 1:
                 true_next_value = self.data.iloc[i + 1][target_feature]
                 self.data.at[self.data.index[i], f'true_{target_feature.lower()}_diff'] = true_next_value - predicted_value
-
+        self.data = self.data[self.lags[-1]:]
         return self.data
     
     def save_model(self, path):
