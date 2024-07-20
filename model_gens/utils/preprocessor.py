@@ -13,6 +13,7 @@ from model_gens.utils.static.columns import Columns
 from tqdm import tqdm
 from model_gens.utils.static.processing_type import ProcessingType
 from model_gens.utils.static.indicator import Indicator
+from model_gens.utils.price_predictor import PricePredictor
 
 
 class Preprocessor:
@@ -132,17 +133,16 @@ class Preprocessor:
     def preprocess_data_for_initial(self):
         columns_to_train = [Columns.High, Columns.Low, Columns.Close]
 
-        X_train, X_test, y_train, y_test = None, None, None, None
-
         for column in tqdm(columns_to_train, desc="Processing data for initial training"):
             self.target_column = column
-            X, y = self.prepare_dataset()
-
-            X_train, X_test, y_train, y_test = self.split_train_test(X, y)
-            self.save_last_steps(filename=f'/home/amar/Documents/Projects/MarketPredictor/Datas/BTCUSDT/preprocessed_data/{
-                                 column.name}/test/{column.name}_last_steps.csv')
-
-        return X_train, X_test, y_train, y_test
+            predictor = PricePredictor(self._data, column)
+            predictor.train_model()
+            predictor.analyze_and_predict()
+            self.save_predictions(predictor.data, self.target_column.name.lower())
+            # predictor.save_model(
+            #     f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
+            
+            # self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
 
     def preprocess_data_for_training(self):
         return self.prepare_dataset()
@@ -213,30 +213,30 @@ class Preprocessor:
     def predict_value(self, model, features):
         return model.intercept_ + np.dot(model.coef_, features)
 
-    def analyze_and_predict(self, lags=range(1, 60)):
-        target_feature = self.target_column.name
-        features = ['Open', 'High', 'Low', 'Close', 'Volume']
-        self._data[f'expected_next_{target_feature.lower()}'] = np.nan
-        self._data[f'true_{target_feature.lower()}_diff'] = np.nan
+    # def analyze_and_predict(self, lags=range(1, 60)):
+    #     target_feature = self.target_column.name
+    #     features = ['Open', 'High', 'Low', 'Close', 'Volume']
+    #     self._data[f'expected_next_{target_feature.lower()}'] = np.nan
+    #     self._data[f'true_{target_feature.lower()}_diff'] = np.nan
 
-        for i in tqdm(range(len(self._data) - max(lags)), desc=f"Analyzing and predicting {target_feature}"):
-            X, y = self.prepare_features()
+    #     for i in tqdm(range(len(self._data) - max(lags)), desc=f"Analyzing and predicting {target_feature}"):
+    #         X, y = self.prepare_features()
 
-            model = self.train_regression_model(X, y)
+    #         model = self.train_regression_model(X, y)
 
-            next_X = self._data.iloc[i][features].values
-            predicted_value = self.predict_value(model, next_X)
+    #         next_X = self._data.iloc[i][features].values
+    #         predicted_value = self.predict_value(model, next_X)
 
-            self._data.at[self._data.index[i], f'expected_next_{
-                target_feature.lower()}'] = predicted_value
-            if i < len(self._data) - 1:
-                true_next_value = self._data.iloc[i + 1][target_feature]
-                self._data.at[self._data.index[i], f'true_{
-                    target_feature.lower()}_diff'] = true_next_value - predicted_value
+    #         self._data.at[self._data.index[i], f'expected_next_{
+    #             target_feature.lower()}'] = predicted_value
+    #         if i < len(self._data) - 1:
+    #             true_next_value = self._data.iloc[i + 1][target_feature]
+    #             self._data.at[self._data.index[i], f'true_{
+    #                 target_feature.lower()}_diff'] = true_next_value - predicted_value
 
-        self.save_predictions(
-            self._data.iloc[max(lags):], target_feature.lower())
-        return self._data.iloc[max(lags):]
+    #     self.save_predictions(
+    #         self._data.iloc[max(lags):], target_feature.lower())
+    #     return self._data.iloc[max(lags):]
 
     def analyze_and_predict_low(self, lags=range(1, 60)):
         self.target_column = Columns.Low
