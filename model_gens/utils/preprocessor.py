@@ -131,18 +131,18 @@ class Preprocessor:
 
     # Processing methods
     def preprocess_data_for_initial(self):
-        columns_to_train = [Columns.High, Columns.Low, Columns.Close]
+        columns_to_train = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
 
-        for column in tqdm(columns_to_train, desc="Processing data for initial training"):
+        for column in columns_to_train:
             self.target_column = column
             predictor = PricePredictor(self._data, column)
             predictor.train_model()
             predictor.analyze_and_predict()
             self.save_predictions(predictor.data, self.target_column.name.lower())
-            # predictor.save_model(
-            #     f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
+            predictor.save_model(
+                f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
             
-            # self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
+            self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
 
     def preprocess_data_for_training(self):
         return self.prepare_dataset()
@@ -396,6 +396,14 @@ class Preprocessor:
         return X_train, X_test, y_train, y_test
 
     def save_last_steps(self, steps=120, filename='last_steps.csv'):
+        # Extract directory from filename
+        directory = os.path.dirname(filename)
+
+        # Create directory if it doesn't exist
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory)
+
+        # Save the data
         data = self._data[-steps:]
         data.to_csv(filename, index=True)
 

@@ -8,6 +8,7 @@ from model_gens.gru_model_gen import GRUModel
 from model_gens.utils.static.model_type import ModelType
 from model_gens.utils.model_trainer import ModelTrainer
 from model_gens.utils.preprocessor import Preprocessor
+from model_gens.utils.static.processing_type import ProcessingType
 
 def configure_memory_growth():
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -66,7 +67,7 @@ def main():
             gru_trainer = ModelTrainer(model_class=GRUModel, model_type=ModelType.GRU, data_path=data_path)
             gru_trainer.train()
         elif args.action == 'process':
-            initial_preprocessor = Preprocessor(data_path)
+            initial_preprocessor = Preprocessor(data_path, processing_type=ProcessingType.INITIAL)
             initial_preprocessor.preprocess_data_for_initial()
 
 if __name__ == "__main__":

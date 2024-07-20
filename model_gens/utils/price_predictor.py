@@ -14,15 +14,18 @@ class PricePredictor:
         self.lags = range(1, 60)
 
     def prepare_features(self):
+        potential_targets = [Columns.Open, Columns.High, Columns.Low, Columns.Close, Columns.Volume, Columns.Open_Close_Diff]
+        # print(f"Preparing features for {self.target_column.name}")
         y = self.data[self.target_column.name].fillna(0)
-        expected_str = f'expected_next_{self.target_column.name.lower()}'
-        true_diff_str = f'true_{self.target_column.name.lower()}_diff'
-        if expected_str in self.data.columns:
-            self.data.drop(columns=[expected_str], inplace=True)
-        if true_diff_str in self.data.columns:
-            self.data.drop(columns=[true_diff_str], inplace=True)
-        if Columns.Open_Close_Diff.name in self.data.columns:
-            self.data.drop(columns=[Columns.Open_Close_Diff.name], inplace=True)
+        for potential_target in potential_targets:
+            expected_str = f'expected_next_{potential_target.name.lower()}'
+            true_diff_str = f'true_{potential_target.name.lower()}_diff'
+            if expected_str in self.data.columns:
+                self.data.drop(columns=[expected_str], inplace=True)
+            if true_diff_str in self.data.columns:
+                self.data.drop(columns=[true_diff_str], inplace=True)
+            if Columns.Open_Close_Diff.name in self.data.columns:
+                self.data.drop(columns=[Columns.Open_Close_Diff.name], inplace=True)
         X = self.data.fillna(0)
         return X, y
 
@@ -39,7 +42,7 @@ class PricePredictor:
         self.data[f'expected_next_{target_feature.lower()}'] = np.nan
         self.data[f'true_{target_feature.lower()}_diff'] = np.nan
 
-        for i in tqdm(range(len(self.data) - max(self.lags)), desc=f"Analyzing and predicting {target_feature}"):
+        for i in tqdm(range(max(self.lags), len(self.data)), desc=f"Analyzing and predicting {target_feature}"):
             next_X = self.data.iloc[i][self.features].values
             predicted_value = self.predict_value(next_X)
 
