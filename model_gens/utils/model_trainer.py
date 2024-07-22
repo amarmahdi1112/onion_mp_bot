@@ -37,11 +37,13 @@ class ModelTrainer:
             self.target_column = column
             self.market_predictor.preprocessor.target_column = column
             self.market_predictor.preprocessor._load_data()
+            if self.market_predictor.preprocessor._data.empty:
+                print(f"No data found for {column.name}")
+                continue
             if self._skip_column_training(skip_existing):
                 continue
 
-            print(f"Processing {
-                  column.name} - {columns.index(column) + 1}/{len(columns)}")
+            print(f"Processing {column.name} - {columns.index(column) + 1}/{len(columns)}")
             self._train_and_save_model()
 
     def _skip_column_training(self, skip_existing):
@@ -77,8 +79,7 @@ class ModelTrainer:
         latest_data_date = self.market_predictor.preprocessor._data.index[-1]
         self.market_predictor.model_history.insert_new_training_data(
             model_table=self.model_type,
-            model_name=f'{self.asset_name}_{self.model_type.value.lower()}_{
-                self.target_column.name.lower()}',
+            model_name=f'{self.asset_name}_{self.model_type.value.lower()}_{self.target_column.name.lower()}',
             model_type=self.target_column.name,
             data_date=str(latest_data_date),
             model_date=str(datetime.now()),
@@ -97,12 +98,9 @@ class ModelTrainer:
         self._ensure_directory_exists(scaler_subdir)
         self._ensure_directory_exists(shape_subdir)
 
-        model_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            self.target_column.name.lower()}.h5'
-        scaler_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            self.target_column.name.lower()}_scaler.pkl'
-        shape_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{
-            self.target_column.name.lower()}_shape.pkl'
+        model_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{self.target_column.name.lower()}.h5'
+        scaler_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{self.target_column.name.lower()}_scaler.pkl'
+        shape_filename = f'{self.asset_name}_{self.model_type.value.lower()}_{self.target_column.name.lower()}_shape.pkl'
 
         model_path = os.path.join(model_subdir, model_filename)
         scaler_path = os.path.join(scaler_subdir, scaler_filename)
@@ -111,12 +109,9 @@ class ModelTrainer:
         return model_path, scaler_path, shape_path, scaler_filename, shape_filename
 
     def _get_subdirectories(self):
-        base_model_path = f'models/{self.asset_name.lower()
-                                    }/{self.model_type.value.lower()}/{self.target_column.name.lower()}'
-        base_scaler_path = f'models/{self.asset_name.lower()}/scalers/{
-            self.model_type.value.lower()}/{self.target_column.name.lower()}'
-        base_shape_path = f'models/{self.asset_name.lower()}/shapes/{
-            self.model_type.value.lower()}/{self.target_column.name.lower()}'
+        base_model_path = f'models/{self.asset_name.lower()}/{self.model_type.value.lower()}/{self.target_column.name.lower()}'
+        base_scaler_path = f'models/{self.asset_name.lower()}/scalers/{self.model_type.value.lower()}/{self.target_column.name.lower()}'
+        base_shape_path = f'models/{self.asset_name.lower()}/shapes/{self.model_type.value.lower()}/{self.target_column.name.lower()}'
 
         model_subdir = os.path.join(BASE_DIR, base_model_path)
         scaler_subdir = os.path.join(BASE_DIR, base_scaler_path)

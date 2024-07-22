@@ -143,5 +143,4 @@ class MetaModel:
             self.scaler = pickle.load(f)
         with open(shape_filename, 'rb') as f:
             self.feature_shape = pickle.load(f)
-        logging.info(f'Scaler and feature shape loaded from {
-                     scaler_filename} and {shape_filename}.')
+        logging.info(f'Scaler and feature shape loaded from {scaler_filename} and {shape_filename}.')

@@ -2,7 +2,7 @@ from sklearn.preprocessing import MinMaxScaler
 import pickle
 import numpy as np
 import pandas as pd
-import ta
+import ta # type: ignore
 from enum import Enum
 import glob
 import os
@@ -10,7 +10,7 @@ from sklearn.linear_model import LinearRegression
 from scipy.stats import pearsonr
 from settings import BASE_DIR
 from model_gens.utils.static.columns import Columns
-from tqdm import tqdm
+from tqdm import tqdm # type: ignore
 from model_gens.utils.static.processing_type import ProcessingType
 from model_gens.utils.static.indicator import Indicator
 from model_gens.utils.price_predictor import PricePredictor
@@ -30,64 +30,82 @@ class Preprocessor:
         if load_csv:
             self._load_data()
 
-    # Data loading methods
     def _load_data(self):
         print(f"Loading data for {self.processing_type.name.lower()}...")
+        # Validate path first
+        self._validate_path()
+        # Load data based on processing type
         if self.processing_type == ProcessingType.INITIAL:
-            if os.path.isfile(self.path):
-                self._load_data_file()
-            else:
-                raise ValueError(f"Path {self.path} is not valid.")
+            self._load_data_file()
         elif self.processing_type == ProcessingType.TRAINING:
-            if os.path.isdir(self.path):
-                if not self.target_column:
-                    raise ValueError("Target column not specified.")
-                self._load_data_file()
+            if not self.target_column:
+                raise ValueError("Target column not specified.")
+            self._load_data_file()
 
+    def _validate_path(self):
+        if self.processing_type == ProcessingType.INITIAL and not os.path.isfile(self.path):
+            raise ValueError(f"Path {self.path} is not a valid file.")
+        elif self.processing_type == ProcessingType.TRAINING and not os.path.isdir(self.path):
+            raise ValueError(f"Path {self.path} is not a valid directory.")
+        
     def _load_data_file(self):
+        print(f"Reading data from {self.path}...")
         try:
-            print(f"Reading data from {self.path}...")
             data = None
             if self.processing_type == ProcessingType.INITIAL:
                 data = pd.read_csv(self.path, parse_dates=True, index_col=0)
-                self._post_process_data(data)
             elif self.processing_type == ProcessingType.TRAINING:
-                if not os.path.isdir(self.path):
-                    raise ValueError(f"Path {self.path} is not a directory.")
-                if self.target_column == Columns.Open:
-                    data = pd.read_csv(
-                        f'{self.path}/open/open_prediction_preprocessed_data.csv', parse_dates=True, index_col=0)
-                elif self.target_column == Columns.Close:
-                    data = pd.read_csv(
-                        f'{self.path}/close/close_prediction_preprocessed_data.csv', parse_dates=True, index_col=0)
-                elif self.target_column == Columns.High:
-                    print(f"Reading high data... {
-                          self.path}/high/high_prediction_preprocessed_data.csv")
-                    data = pd.read_csv(
-                        f'{self.path}/high/high_prediction_preprocessed_data.csv', parse_dates=True, index_col=0)
-                elif self.target_column == Columns.Low:
-                    data = pd.read_csv(
-                        f'{self.path}/low/low_prediction_preprocessed_data.csv', parse_dates=True, index_col=0)
+                # Consolidate file path construction and reading
+                if self.target_column in [Columns.Open, Columns.Close, Columns.High, Columns.Low]:
+                    file_path = f'{self.path}/{self.target_column.name.lower()}/{self.target_column.name.lower()}_prediction_preprocessed_data.csv'
+                    print(f"Reading {self.target_column.name.lower()} data... {file_path}")
+                    data = pd.read_csv(file_path, parse_dates=True, index_col=0)
+                else:
+                    raise ValueError(f"Unsupported target column: {self.target_column}")
+            else:
+                raise ValueError(f"Unsupported processing type: {self.processing_type}")
+
+            if data is not None:
                 self._post_process_data(data)
         except Exception as e:
-            raise ValueError(f"Error: {e}")
+            raise ValueError(f"Error loading data: {e}")
 
     def _post_process_data(self, data=None):
-        print("Post processing data...")
         if data is None:
             data = self._data
-        print('Dropping unnecessary columns...')
+
         self._drop_unnecessary_columns(data)
-        print('Filling missing values...')
         self._fill_missing_values(data)
-        print('Ensuring required columns...')
         self._ensure_required_columns(data)
         self._data = data
-        print('Setting attributes...')
         self._set_attributes()
-        print('Data post processing complete.')
 
     def _ensure_required_columns(self, data):
+        required_columns = self._get_required_columns()
+        missing = set(required_columns) - set(data.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+    def _drop_unnecessary_columns(self, data):
+        columns_to_drop = ["Change", 'Open Interest']
+        data.drop(columns=[col for col in columns_to_drop if col in data.columns], inplace=True)
+
+    def _fill_missing_values(self, data):
+        # Apply fill methods in a chain and ensure they are applied by assigning the result
+        data.fillna(method='ffill', inplace=True)
+        data.fillna(method='bfill', inplace=True)
+        data.fillna(0, inplace=True)
+        if data.isna().any().any():
+            raise ValueError("Data contains NaN values even after filling.")
+
+    def _set_attributes(self):
+        # Assuming this method sets class attributes based on column names
+        for col in [Columns.Open, Columns.High, Columns.Low, Columns.Close, Columns.Volume]:
+            setattr(self, f"_{col.name.lower()}", self._data[col.name].copy())
+        self._open_close_diff = self._data.get(Columns.Open_Close_Diff.name, pd.Series(dtype=float)).copy()
+
+    def _get_required_columns(self):
+        # This method abstracts away the logic for determining required columns
         base_required_columns = [
             Columns.Open.name, 
             Columns.High.name, 
@@ -101,40 +119,12 @@ class Preprocessor:
             Columns.High: ['expected_next_high', 'true_high_diff'],
             Columns.Low: ['expected_next_low', 'true_low_diff'],
         }
-
         if self.processing_type == ProcessingType.INITIAL:
-            required_columns = base_required_columns
+            return base_required_columns
         elif self.processing_type == ProcessingType.TRAINING:
             specific_columns = additional_columns.get(self.target_column, [])
-            required_columns = base_required_columns + specific_columns
-
-        missing = set(required_columns) - set(data.columns)
-        if missing:
-            raise ValueError(f"Missing required columns: {missing}")
+            return base_required_columns + specific_columns
         
-    def _drop_unnecessary_columns(self, data):
-        columns_to_drop = ["Change", 'Open Interest']
-        data.drop(
-            columns=[col for col in columns_to_drop if col in data.columns], inplace=True)
-
-    def add_all_props(self, new_data):
-        self._data = pd.concat([self._data, new_data]).sort_index()
-        self._post_process_data()
-
-    def _fill_missing_values(self, data):
-        if data.isna().any().any():
-            data.ffill().bfill()
-            data.fillna(0, inplace=True)
-            if data.isna().any().any():
-                raise ValueError(
-                    "Data contains NaN values even after forward and backward filling.")
-
-    def _set_attributes(self):
-        for col in [Columns.Open, Columns.High, Columns.Low, Columns.Close, Columns.Volume]:
-            setattr(self, f"_{col.name.lower()}", self._data[col.name])
-        self._open_close_diff = self._data.get(
-            Columns.Open_Close_Diff.name, pd.Series(dtype=float))
-
     # Processing methods
     def preprocess_data_for_initial(self):
         columns_to_train = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
@@ -315,8 +305,7 @@ class Preprocessor:
         if not any(np.array_equal(data_X_values[0], seq[0]) for seq in X):
             print(
                 "Top of the data is not included in the sequences due to insufficient length.")
-        print(f"Successfully created sequences. X shape: {
-              np.array(X).shape}, y shape: {np.array(y).shape}")
+        print(f"Successfully created sequences. X shape: {np.array(X).shape}, y shape: {np.array(y).shape}")
         return np.array(X), np.array(y)
 
     def _validate_data(self, X, y):

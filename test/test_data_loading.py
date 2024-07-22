@@ -28,8 +28,7 @@ class TestPreprocessor(unittest.TestCase):
         required_columns = [Columns.Open.name, Columns.High.name,
                             Columns.Low.name, Columns.Close.name, Columns.Volume.name]
         for column in required_columns:
-            self.assertIn(column, preprocessor._data.columns, f"Column {
-                          column} should be present in the data.")
+            self.assertIn(column, preprocessor._data.columns, f"Column {column} should be present in the data.")
 
     def test_load_data_training_high(self):
         # Create a Preprocessor instance
@@ -52,8 +51,7 @@ class TestPreprocessor(unittest.TestCase):
         required_columns = [Columns.Open.name, Columns.High.name, Columns.Low.name,
                             Columns.Close.name, 'expected_next_high', 'true_high_diff']
         for column in required_columns:
-            self.assertIn(column, preprocessor._data.columns, f"Column {
-                          column} should be present in the data.")
+            self.assertIn(column, preprocessor._data.columns, f"Column {column} should be present in the data.")
 
     def test_load_data_training_low(self):
         # Create a Preprocessor instance
@@ -73,8 +71,7 @@ class TestPreprocessor(unittest.TestCase):
         required_columns = [Columns.Open.name, Columns.High.name,
                             Columns.Low.name, Columns.Close.name, Columns.Volume.name]
         for column in required_columns:
-            self.assertIn(column, preprocessor._data.columns, f"Column {
-                          column} should be present in the data.")
+            self.assertIn(column, preprocessor._data.columns, f"Column {column} should be present in the data.")
 
     def tearDown(self):
         # Cleanup if necessary

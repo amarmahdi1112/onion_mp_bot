@@ -1,4 +1,4 @@
-import xgboost as xgb
+import xgboost as xgb # type: ignore
 import numpy as np
 import logging
 import pickle
@@ -167,8 +167,7 @@ class XGBModel(MarketPredictorBase):
             pickle.dump(self.scaler, f)
         with open(shape_filename, 'wb') as f:
             pickle.dump(self.feature_shape, f)
-        logging.info(f'Scaler and feature shape saved to {
-                     scaler_filename} and {shape_filename}.')
+        logging.info(f'Scaler and feature shape saved to {scaler_filename} and {shape_filename}.')
 
     def load_scaler_and_shape(self, scaler_filename='scaler.pkl', shape_filename='feature_shape.pkl'):
         """Loads the scaler and feature shape from files.
@@ -181,5 +180,4 @@ class XGBModel(MarketPredictorBase):
             self.scaler = pickle.load(f)
         with open(shape_filename, 'rb') as f:
             self.feature_shape = pickle.load(f)
-        logging.info(f'Scaler and feature shape loaded from {
-                     scaler_filename} and {shape_filename}.')
+        logging.info(f'Scaler and feature shape loaded from {scaler_filename} and {shape_filename}.')

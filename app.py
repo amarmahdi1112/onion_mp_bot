@@ -58,7 +58,7 @@ def main():
         # os.system('cls' if os.name == 'nt' else 'clear')
 
         if args.action == 'train':
-            data_path = os.path.join(BASE_DIR, 'Datas\BTCUSDT\preprocessed_data')
+            data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/preprocessed_data')
             # Train LSTM model
             lstm_trainer = ModelTrainer(model_class=LSTMModel, model_type=ModelType.LSTM, data_path=data_path)
             lstm_trainer.train()

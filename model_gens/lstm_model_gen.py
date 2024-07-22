@@ -1,6 +1,6 @@
 import os
 import logging
-import tensorflow as tf
+import tensorflow as tf # type: ignore
 from tensorflow.keras.models import Sequential, load_model  # type: ignore
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional  # type: ignore
 from model_gens.market_predictor_base import MarketPredictorBase
@@ -117,7 +117,6 @@ class LSTMModel(MarketPredictorBase):
             # self.feature_shape = self.preprocessor.load_shape(shape_full_path)
 
             self.model = model
-            logging.info(f'{column.name} model loaded from {
-                model_full_path}')
+            logging.info(f'{column.name} model loaded from {model_full_path}')
         else:
             logging.warning(f'No trained model found for {column.name}')
