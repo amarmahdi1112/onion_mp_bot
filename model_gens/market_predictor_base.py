@@ -101,125 +101,44 @@ class MarketPredictorBase(ABC):
         """
         model.save(f'{model_name}')
         logging.info('Model saved.')
+        
+    def prepare_and_predict(self, target_column):
+        self.set_target_column(target_column)
+        self.load_data()
+        print(f"Data loaded pass: {self.preprocessor._data}")
+        X_seq, y_seq = self.prepare_dataset()
+        if X_seq is None or y_seq is None:
+            return None
+        return self.predict_and_decode(X_seq, target_column)
 
-    def prepare_latest_data_and_predict_open(self):
-        preprocess_last_trained_data = self.preprocessor
+    def set_target_column(self, column):
+        self.preprocessor.target_column = column
 
-        preprocess_last_trained_data.add_all_props(self.new_preprocessor._data)
+    def load_data(self):
+        self.preprocessor._load_data()
 
-        # Prepare the dataset for the Open column
+    def prepare_dataset(self):
         try:
-            X_seq, y_seq = preprocess_last_trained_data.prepare_dataset(
-                target=Columns.Open, training=False)
-
+            X_seq, y_seq = self.preprocessor.prepare_dataset()
+            print(f"Feature set shape: {X_seq.shape}")
+            print(f"Target shape: {y_seq.shape}")
+            return X_seq, y_seq
         except Exception as e:
             print(f"Error preparing dataset: {e}")
-            return None
+            return None, None
 
-        # Ensure the data shapes are consistent
-        print(f"Feature set shape: {X_seq.shape}")
-        print(f"Target shape: {y_seq.shape}")
-
+    def predict_and_decode(self, X_seq, target_column):
         try:
             next_pred = self.model.predict(X_seq)
             next_pred_value = max(next_pred[0][0], 0)
             predictions = np.array([[next_pred_value]])
-
-            decoded_predictions = preprocess_last_trained_data.output_decoder(
-                predictions, preprocess_last_trained_data._data, Columns.Open.name
-            )
-            # Round the decoded predictions to 2 decimal places
+            decoded_predictions = self.preprocessor.output_decoder(predictions, self.preprocessor._data, target_column)
             rounded_predictions = np.round(decoded_predictions, 2)
-
             return rounded_predictions
         except Exception as e:
             print("Error during prediction:", e)
             return None
-
-    def prepare_latest_data_and_predict_low(self, new_predicted_open_price):
-        preprocess_last_trained_data = self.preprocessor
-
-        preprocess_last_trained_data.add_all_props(self.new_preprocessor._data)
-
-        if new_predicted_open_price is None:
-            raise ValueError(
-                "The new predicted open price is required for predicting the low price.")
-
-        # Create a new row with the predicted open price and append it to the data
-        last_index = preprocess_last_trained_data._data.index[-1]
-        new_index = last_index + pd.Timedelta(minutes=5)
-        new_row = {
-            Columns.Open.name: new_predicted_open_price,
-            Columns.High.name: np.nan,
-            Columns.Low.name: np.nan,
-            Columns.Close.name: np.nan,
-            Columns.Volume.name: np.nan,
-            Columns.Open_Close_Diff.name: np.nan
-        }
-        new_data_df = pd.DataFrame(new_row, index=[new_index])
-        preprocess_last_trained_data.add_all_props(new_data_df)
-
-        # Prepare the dataset for the Low column
-        try:
-            X_seq, y_seq = preprocess_last_trained_data.prepare_dataset(
-                target=Columns.Low, training=False)
-        except Exception as e:
-            print(f"Error preparing dataset: {e}")
-            return None
-
-        # Ensure the data shapes are consistent
-        print(f"Feature set shape: {X_seq.shape}")
-        print(f"Target shape: {y_seq.shape}")
-
-        try:
-            next_pred = self.model.predict(X_seq)
-            next_pred_value = max(next_pred[0][0], 0)
-            predictions = np.array([[next_pred_value]])
-
-            decoded_predictions = preprocess_last_trained_data.output_decoder(
-                predictions, preprocess_last_trained_data._data, Columns.Low.name
-            )
-            # Round the decoded predictions to 2 decimal places
-            rounded_predictions = np.round(decoded_predictions, 2)
-
-            return rounded_predictions
-        except Exception as e:
-            print("Error during prediction:", e)
-            return None
-
-    def prepare_latest_data_and_predict_high(self, steps=12):
-        preprocess_last_trained_data = self.preprocessor
-
-        preprocess_last_trained_data.add_all_props(self.new_preprocessor._data)
-
-        # print(preprocess_last_trained_data._data)
-
-        try:
-            X_seq, y_seq = preprocess_last_trained_data.prepare_dataset(
-                target=Columns.High, training=False)
-        except Exception as e:
-            print(f"Error preparing dataset: {e}")
-            return None
-
-        # Ensure the data shapes are consistent
-        print(f"Feature set shape: {X_seq.shape}")
-        print(f"Target shape: {y_seq.shape}")
-
-        try:
-            next_pred = self.model.predict(X_seq)
-            next_pred_value = max(next_pred[0][0], 0)
-            predictions = np.array([[next_pred_value]])
-
-            decoded_predictions = preprocess_last_trained_data.output_decoder(
-                predictions, preprocess_last_trained_data._data, Columns.High.name
-            )
-            # Round the decoded predictions to 2 decimal places
-            rounded_predictions = np.round(decoded_predictions, 2)
-
-            return rounded_predictions
-        except Exception as e:
-            print("Error during prediction:", e)
-            return None
+        
     # def prepare_latest_data_and_predict(self, model_name: Columns, eval=False):
     #     """Prepares the latest data and makes future predictions.
 

@@ -56,3 +56,9 @@ class PricePredictor:
     def save_model(self, path):
         with open(path, 'wb') as f:
             pickle.dump(self.model, f)
+    
+    def load_model(self, path):
+        with open(path, 'rb') as f:
+            self.model = pickle.load(f)
+        
+        return self.model

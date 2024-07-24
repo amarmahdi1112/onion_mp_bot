@@ -14,7 +14,32 @@ from tqdm import tqdm # type: ignore
 from model_gens.utils.static.processing_type import ProcessingType
 from model_gens.utils.static.indicator import Indicator
 from model_gens.utils.price_predictor import PricePredictor
+from retrying import retry
+import logging
 
+class ValidationError(Exception):
+    pass
+class DataProcessingError(Exception):
+    """Custom exception for errors during data processing."""
+    pass
+class InvalidProcessingTypeError(Exception):
+    """Exception raised when an invalid processing type is encountered."""
+    pass
+
+class InvalidTargetColumnError(Exception):
+    """Exception raised when an invalid target column is encountered."""
+    pass
+
+class UnexpectedError(Exception):
+    """Exception raised for any unexpected errors."""
+    pass
+class DataLoadingError(Exception):
+    """Exception raised when there is an error loading the data."""
+    pass
+
+class ModelTrainingError(Exception):
+    """Exception raised during model training."""
+    pass
 
 class Preprocessor:
     def __init__(self, path=None, target_column=None, processing_type=ProcessingType.INITIAL, load_csv=True):
@@ -27,27 +52,36 @@ class Preprocessor:
         self._data = pd.DataFrame()
         self._open_close_diff = pd.Series(dtype=float)
         self._load_csv = load_csv
+        self.added_columns = []  # List to keep track of added columns
+
         if load_csv:
             self._load_data()
-
+            
     def _load_data(self):
-        print(f"Loading data for {self.processing_type.name.lower()}...")
-        # Validate path first
-        self._validate_path()
-        # Load data based on processing type
-        if self.processing_type == ProcessingType.INITIAL:
-            self._load_data_file()
-        elif self.processing_type == ProcessingType.TRAINING:
-            if not self.target_column:
-                raise ValueError("Target column not specified.")
-            self._load_data_file()
+            logging.info(f"Loading data for {self.processing_type.name.lower()}...")
+            try:
+                print('hello')
+                self._validate_path()
+                if self.processing_type == ProcessingType.INITIAL:
+                    self._load_data_file()
+                elif self.processing_type == ProcessingType.TRAINING or self.processing_type == ProcessingType.PREDICTION:
+                    if not self.target_column:
+                        raise ValidationError("Target column not specified.")
+                    self._load_data_file()
+            except ValidationError as e:
+                logging.error(f"Validation error: {e}")
+            except FileNotFoundError as e:
+                logging.error(f"File not found: {e}")
+            except Exception as e:
+                logging.error(f"Unexpected error: {e}")
 
     def _validate_path(self):
         if self.processing_type == ProcessingType.INITIAL and not os.path.isfile(self.path):
-            raise ValueError(f"Path {self.path} is not a valid file.")
+            raise ValidationError(f"Path {self.path} is not a valid file.")
         elif self.processing_type == ProcessingType.TRAINING and not os.path.isdir(self.path):
-            raise ValueError(f"Path {self.path} is not a valid directory.")
-        
+            raise ValidationError(f"Path {self.path} is not a valid directory.")
+
+    @retry(stop_max_attempt_number=3, wait_fixed=2000)
     def _load_data_file(self):
         print(f"Reading data from {self.path}...")
         try:
@@ -56,12 +90,14 @@ class Preprocessor:
                 data = pd.read_csv(self.path, parse_dates=True, index_col=0)
             elif self.processing_type == ProcessingType.TRAINING:
                 # Consolidate file path construction and reading
-                if self.target_column in [Columns.Open, Columns.Close, Columns.High, Columns.Low]:
+                if self.target_column in [Columns.Close, Columns.High, Columns.Low, Columns.Volume]:
                     file_path = f'{self.path}/{self.target_column.name.lower()}/{self.target_column.name.lower()}_prediction_preprocessed_data.csv'
                     print(f"Reading {self.target_column.name.lower()} data... {file_path}")
                     data = pd.read_csv(file_path, parse_dates=True, index_col=0)
                 else:
                     raise ValueError(f"Unsupported target column: {self.target_column}")
+            elif self.processing_type == ProcessingType.PREDICTION:
+                data = pd.read_csv(self.path, parse_dates=True, index_col=0)
             else:
                 raise ValueError(f"Unsupported processing type: {self.processing_type}")
 
@@ -74,119 +110,200 @@ class Preprocessor:
         if data is None:
             data = self._data
 
-        self._drop_unnecessary_columns(data)
-        self._fill_missing_values(data)
-        self._ensure_required_columns(data)
+        try:
+            self._drop_unnecessary_columns(data)
+        except Exception as e:
+            self._log_error("_drop_unnecessary_columns", e)
+            raise DataProcessingError("Error in dropping unnecessary columns") from e
+
+        try:
+            self._fill_missing_values(data)
+        except Exception as e:
+            self._log_error("_fill_missing_values", e)
+            raise DataProcessingError("Error in filling missing values") from e
+
+        try:
+            self._ensure_required_columns(data)
+        except Exception as e:
+            self._log_error("_ensure_required_columns", e)
+            raise DataProcessingError("Error in ensuring required columns") from e
+
         self._data = data
         self._set_attributes()
 
+    def _log_error(self, step, exception):
+        # Implement logging mechanism here
+        # Example: logging.error(f"Error during {step}: {exception}")
+        print(f"Error during {step}: {exception}")
+        
     def _ensure_required_columns(self, data):
+        if data is None:
+            raise ValueError("Data is empty.")
         required_columns = self._get_required_columns()
         missing = set(required_columns) - set(data.columns)
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
 
     def _drop_unnecessary_columns(self, data):
+        if data is None:
+            raise ValueError("Data is empty.")
         columns_to_drop = ["Change", 'Open Interest']
         data.drop(columns=[col for col in columns_to_drop if col in data.columns], inplace=True)
 
     def _fill_missing_values(self, data):
+        if data is None:
+            raise ValueError("Data is empty.")
         # Apply fill methods in a chain and ensure they are applied by assigning the result
-        data.fillna(method='ffill', inplace=True)
-        data.fillna(method='bfill', inplace=True)
-        data.fillna(0, inplace=True)
+        # data.fillna(method='ffill', inplace=True)
+        # data.fillna(method='bfill', inplace=True)
+        # data.fillna(0, inplace=True)
+        # use ffill and bfill to fill missing values
+        data.ffill(inplace=True)
+        data.bfill(inplace=True)
+        # Ensure there are no NaN values after filling
         if data.isna().any().any():
             raise ValueError("Data contains NaN values even after filling.")
 
     def _set_attributes(self):
+        if self._data.empty:
+            raise ValueError("Data is empty.")
         # Assuming this method sets class attributes based on column names
         for col in [Columns.Open, Columns.High, Columns.Low, Columns.Close, Columns.Volume]:
             setattr(self, f"_{col.name.lower()}", self._data[col.name].copy())
         self._open_close_diff = self._data.get(Columns.Open_Close_Diff.name, pd.Series(dtype=float)).copy()
 
     def _get_required_columns(self):
-        # This method abstracts away the logic for determining required columns
-        base_required_columns = [
-            Columns.Open.name, 
-            Columns.High.name, 
-            Columns.Low.name, 
-            Columns.Close.name, 
-            Columns.Volume.name
-        ]
-        additional_columns = {
-            Columns.Open: [Columns.Open_Close_Diff.name],
-            Columns.Close: ['expected_next_close', 'true_close_diff'],
-            Columns.High: ['expected_next_high', 'true_high_diff'],
-            Columns.Low: ['expected_next_low', 'true_low_diff'],
-        }
-        if self.processing_type == ProcessingType.INITIAL:
-            return base_required_columns
-        elif self.processing_type == ProcessingType.TRAINING:
-            specific_columns = additional_columns.get(self.target_column, [])
-            return base_required_columns + specific_columns
+        try:
+            # Validate processing_type
+            if not isinstance(self.processing_type, ProcessingType):
+                raise InvalidProcessingTypeError(f"Invalid processing type: {self.processing_type}")
+
+            # Base required columns
+            base_required_columns = [
+                Columns.Open.name, 
+                Columns.High.name, 
+                Columns.Low.name, 
+                Columns.Close.name, 
+                Columns.Volume.name
+            ]
+
+            # Additional columns based on the target column
+            additional_columns = {
+                Columns.Open: [Columns.Open_Close_Diff.name],
+                Columns.Close: ['expected_next_close', 'true_close_diff'],
+                Columns.High: ['expected_next_high', 'true_high_diff'],
+                Columns.Low: ['expected_next_low', 'true_low_diff'],
+            }
+
+            # Determine required columns based on processing type
+            if self.processing_type == ProcessingType.INITIAL:
+                return base_required_columns
+            elif self.processing_type == ProcessingType.TRAINING or self.processing_type == ProcessingType.PREDICTION:
+                # Validate target_column
+                if self.target_column not in Columns:
+                    raise InvalidTargetColumnError(f"Invalid target column: {self.target_column}")
+                specific_columns = additional_columns.get(self.target_column, [])
+                return base_required_columns + specific_columns
+        except (InvalidProcessingTypeError, InvalidTargetColumnError) as e:
+            # Log and re-raise specific known errors
+            print(f"Error: {e}")  # Replace with actual logging
+            raise
+        except Exception as e:
+            # Log and re-raise unexpected errors
+            print(f"Unexpected error: {e}")  # Replace with actual logging
+            raise UnexpectedError("An unexpected error occurred") from e
         
-    # Processing methods
     def preprocess_data_for_initial(self):
         columns_to_train = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
 
         for column in columns_to_train:
-            self.target_column = column
-            predictor = PricePredictor(self._data, column)
-            predictor.train_model()
-            predictor.analyze_and_predict()
-            self.save_predictions(predictor.data, self.target_column.name.lower())
-            predictor.save_model(
-                f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
+            try:
+                self.target_column = column
+                predictor = PricePredictor(self._data, column)
+                predictor.train_model()
+                predictor.analyze_and_predict()
+                # self.save_predictions(predictor.data, self.target_column.name.lower())
+                predictor.save_model(
+                    f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
+                
+                self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
+            except DataLoadingError as e:
+                # Handle data loading errors
+                print(f"Failed to load data for {column.name}: {e}")
+                # Optionally, log the error and continue with the next column
+                continue
+            except ModelTrainingError as e:
+                # Handle model training errors
+                print(f"Failed to train model for {column.name}: {e}")
+                # Optionally, log the error and continue with the next column
+                continue
+            except Exception as e:
+                # Handle other unexpected errors
+                print(f"An unexpected error occurred for {column.name}: {e}")
+                # Depending on the severity, you might want to halt further processing or just log and continue
+                continue
             
-            self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
-
     def preprocess_data_for_training(self):
         return self.prepare_dataset()
-
+    
     def calculate_open_close_difference(self):
-        if self._data.empty:
-            raise ValueError("Data is empty.")
-        self._data['Open_Close_Diff'] = self._data['Close'].shift(
-            1) - self._data['Open']
-        self._data['Open_Close_Diff'].fillna(0, inplace=True)
-        self._data['Open_Close_Diff'] = self._data['Open_Close_Diff'].shift(-1)
-        self._data.iloc[-1, self._data.columns.get_loc('Open_Close_Diff')] = 0
-
+        try:
+            if self._data.empty:
+                raise ValueError("Data is empty.")
+            self._data['Open_Close_Diff'] = self._data['Close'].shift(1) - self._data['Open']
+            self._data['Open_Close_Diff'].fillna(0, inplace=True)
+            self._data['Open_Close_Diff'] = self._data['Open_Close_Diff'].shift(-1)
+            self._data.iloc[-1, self._data.columns.get_loc('Open_Close_Diff')] = 0
+        except KeyError as e:
+            # Handle missing 'Close' or 'Open' column
+            raise KeyError(f"Missing column in data: {e}")
+        except TypeError as e:
+            # Handle non-numeric types in 'Close' or 'Open' columns
+            raise TypeError(f"Non-numeric types in 'Close' or 'Open' columns: {e}")
+        except IndexError as e:
+            # This is unlikely due to the initial empty check, but included for completeness
+            raise IndexError(f"Index error encountered: {e}")
+        except Exception as e:
+            # Catch-all for any other exceptions not explicitly handled above
+            raise Exception(f"An unexpected error occurred: {e}")
+        
     def add_columns(self, column_data):
         for column_name, column_values in column_data.items():
             self._data[column_name] = column_values
         return self._data
-
+    
     def prepare_features(self):
-        # print('here')
-        if self.target_column is None:
-            raise ValueError("Target column not specified.")
+        try:
+            if self.target_column is None:
+                raise ValueError("Target column not specified.")
 
-        true_diff_str = f'true_{self.target_column.name.lower()}_diff'
-        # Separate the target column
-        y = self._data[true_diff_str]
-        y.fillna(0, inplace=True)
+            true_diff_str = f'true_{self.target_column.name.lower()}_diff'
+            # Separate the target column
+            y = self._data[true_diff_str]
+            y.fillna(0, inplace=True)
+            
+            # Assuming Columns.Open_Close_Diff.name is a valid column name, if not, KeyError will be raised
+            X = self._data.drop(columns=[true_diff_str, Columns.Open_Close_Diff.name])
+            
+            X.fillna(0, inplace=True)
+            return X, y
+        except AttributeError as e:
+            # Handle missing 'name' attribute or None target_column
+            raise AttributeError(f"Attribute error encountered: {e}")
+        except KeyError as e:
+            # Handle missing columns in self._data
+            raise KeyError(f"Missing column in data: {e}")
+        except Exception as e:
+            # Catch-all for any other exceptions not explicitly handled above
+            raise Exception(f"An unexpected error occurred: {e}")
         
-        X = self._data.drop(columns=[true_diff_str, Columns.Open_Close_Diff.name])
-        
-        X.fillna(0, inplace=True)
-        return X, y
-
     def train_regression_model(self, X, y):
         model = LinearRegression().fit(X, y)
         return model
 
     def predict_value(self, model, features):
         return model.intercept_ + np.dot(model.coef_, features)
-
-    def save_predictions(self, data, target_feature):
-        directory = os.path.join(
-            BASE_DIR, 'Datas', self.currency, 'preprocessed_data', target_feature)
-        os.makedirs(directory, exist_ok=True)
-
-        data.to_csv(
-            f'{directory}/{target_feature}_prediction_preprocessed_data.csv', index=True)
-
+    
     def _calculate_indicator(self, indicator):
         method_name = f"_calculate_{indicator.name.lower()}"
         method = getattr(self, method_name, None)
@@ -202,7 +319,9 @@ class Preprocessor:
             if indicator in [Indicator.ATR, Indicator.STOCHASTIC_OSCILLATOR, Indicator.DONCHIAN_CHANNEL,
                              Indicator.ADDITIONAL_INDICATORS, Indicator.LAG_FEATURES, Indicator.ROLLING_STATISTICS,
                              Indicator.INTERACTION_FEATURES, Indicator.DIFFERENCING, Indicator.RANGE_FEATURES,
-                             Indicator.PREVIOUS_VALUES, Indicator.VOLATILITY] and self.target_column.name in ['High', 'Low']:
+                             Indicator.PREVIOUS_VALUES, Indicator.VOLATILITY] and self.target_column.name in ['High', 'Low', 'Volume']:
+                continue
+            if indicator in [Indicator.PREVIOUS_VALUES, Indicator.ADDITIONAL_INDICATORS, Indicator.LAG_FEATURES, Indicator.INTERACTION_FEATURES] and self.target_column.name in ['Close']:
                 continue
             column_data.update(self._calculate_indicator(indicator))
 
@@ -213,7 +332,15 @@ class Preprocessor:
     def add_columns(self, column_data):
         for column_name, column_values in column_data.items():
             self._data[column_name] = column_values
+            self.added_columns.append(column_name)
         return self._data.ffill().bfill()
+
+    def remove_added_columns(self):
+        # Remove columns listed in self.added_columns from self._data
+        self._data.drop(columns=self.added_columns, inplace=True)
+        # Clear the added_columns list
+        self.added_columns = []
+
 
     def add_indicators_to_data(self):
         indicators = [
@@ -240,11 +367,12 @@ class Preprocessor:
             Indicator.SMA, Indicator.EMA, Indicator.RSI, Indicator.MACD, Indicator.BOLLINGER_BANDS,
             Indicator.ATR, Indicator.STOCHASTIC_OSCILLATOR, Indicator.DONCHIAN_CHANNEL, Indicator.ADDITIONAL_INDICATORS,
             Indicator.LAG_FEATURES, Indicator.ROLLING_STATISTICS, Indicator.INTERACTION_FEATURES, Indicator.DIFFERENCING,
-            Indicator.RANGE_FEATURES, Indicator.PREVIOUS_VALUES, Indicator.VOLATILITY
+            Indicator.RANGE_FEATURES,  Indicator.VOLATILITY
         ]
         data = self.add_technical_indicators(data, indicators)
-        y = data[Columns.Close.name]
-        data = self.remove_columns(data, [Columns.Close.name])
+        target_column_name = 'true_close_diff'
+        y = data[target_column_name]
+        data = self.remove_columns(data, [target_column_name])
         data = data.ffill().bfill()
         self._validate_data(data, y)
         return data, y
@@ -270,13 +398,10 @@ class Preprocessor:
     def price_features(self):
         return self.process_data()
 
-    def split_data_for_high_low(self, data):
-        return self.process_data()
-    
     def prepare_dataset(self, time_step=60):
         if self.target_column == Columns.Open:
             X, y = self.open_close_diff_features()
-        elif self.target_column in [Columns.High, Columns.Low, Columns.Close]:
+        elif self.target_column in [Columns.High, Columns.Low, Columns.Close, Columns.Volume]:
             X, y = self.price_features()
             print(f"X columns: {X.columns}, y shape: {y.shape}")
         else:
@@ -322,7 +447,7 @@ class Preprocessor:
         y_train, y_test = y[:split], y[split:]
         return X_train, X_test, y_train, y_test
 
-    def save_last_steps(self, steps=120, filename='last_steps.csv'):
+    def save_last_steps(self, steps=61, filename='last_steps.csv'):
         # Extract directory from filename
         directory = os.path.dirname(filename)
 
@@ -349,14 +474,48 @@ class Preprocessor:
             print(f"Error during inverse transformation: {e}")
             return None
 
+    # def save_scaler(self, scaler_filename):
+    #     with open(scaler_filename, 'wb') as f:
+    #         pickle.dump(self.scaler_X, f)
+    #         pickle.dump(self.scaler_y, f)
+
+    # save the scalers separately on an separate files
     def save_scaler(self, scaler_filename):
-        with open(scaler_filename, 'wb') as f:
+        # Extract directory from filename
+        directory = os.path.dirname(scaler_filename)
+        
+        directory_X = os.path.join(directory, '_X')
+        directory_y = os.path.join(directory, '_y')
+        
+        # Create directory if it doesn't exist
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        if directory_X and not os.path.exists(directory_X):
+            os.makedirs(directory_X)
+        
+        if directory_y and not os.path.exists(directory_y):
+            os.makedirs(directory_y)
+        
+        # Save the scalers
+        with open(os.path.join(directory_X, 'scaler_X.pkl'), 'wb') as f:
             pickle.dump(self.scaler_X, f)
+        
+        with open(os.path.join(directory_y, 'scaler_y.pkl'), 'wb') as f:
             pickle.dump(self.scaler_y, f)
 
     def load_scaler(self, scaler_filename):
-        with open(scaler_filename, 'rb') as f:
+        # Extract directory from filename
+        directory = os.path.dirname(scaler_filename)
+        
+        directory_X = os.path.join(directory, '_X')
+        directory_y = os.path.join(directory, '_y')
+        
+        # Load the scalers
+        with open(os.path.join(directory_X, 'scaler_X.pkl'), 'rb') as f:
             self.scaler_X = pickle.load(f)
+        
+        with open(os.path.join(directory_y, 'scaler_y.pkl'), 'rb') as f:
             self.scaler_y = pickle.load(f)
 
     def _calculate_sma(self):

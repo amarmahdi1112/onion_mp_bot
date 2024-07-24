@@ -55,7 +55,7 @@ def main():
         memory_limit_mb = 3072
         configure_memory_fraction(memory_limit_mb)
 
-        # os.system('cls' if os.name == 'nt' else 'clear')
+        os.system('cls' if os.name == 'nt' else 'clear')
 
         if args.action == 'train':
             data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/preprocessed_data')

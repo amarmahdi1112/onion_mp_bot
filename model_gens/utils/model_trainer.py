@@ -17,7 +17,7 @@ class ModelTrainer:
         model_class, 
         model_type, 
         data_path, 
-        asset_name='XAUUSD', 
+        asset_name='BTCUSDT', 
         processing_type=ProcessingType.TRAINING
     ):
         self.model_class = model_class
@@ -30,9 +30,10 @@ class ModelTrainer:
         ] = model_class(base_data_path=data_path)
         
     def train(self, skip_existing=False):
+        self.market_predictor.clear_gpu_memory()
         # Remove duplicates and maintain order if necessary
         columns = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
-
+        # columns = [Columns.Close]
         for column in columns:
             self.target_column = column
             self.market_predictor.preprocessor.target_column = column
@@ -48,7 +49,7 @@ class ModelTrainer:
 
     def _skip_column_training(self, skip_existing):
         history = self.market_predictor.model_history.get_last_training_date(
-            model_table=self.model_type, model_type=self.target_column.name.upper())
+            model_table=self.model_type, model_type=self.target_column.name)
         last_data_date, _ = history
         last_data_date = pd.to_datetime(last_data_date) if isinstance(
             last_data_date, str) else last_data_date
@@ -70,8 +71,7 @@ class ModelTrainer:
         model = self.market_predictor.train_model(
             X_train, y_train, X_test, y_test)
 
-        model_path, scaler_path, shape_path, scaler_name, shape_name = self._generate_paths(
-            self.target_column)
+        model_path, scaler_path, shape_path, scaler_name, shape_name = self._generate_paths()
         self.market_predictor.save_models(model, model_path)
         self.market_predictor.preprocessor.save_scaler(
             scaler_filename=scaler_path)
