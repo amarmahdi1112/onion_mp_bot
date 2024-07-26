@@ -44,7 +44,7 @@ class ModelTrainingError(Exception):
 class Preprocessor:
     def __init__(self, path=None, target_column=None, processing_type=ProcessingType.INITIAL, load_csv=True):
         self.path = path
-        self.currency = 'BTCUSDT'
+        self.currency = 'BTCUSD'
         self.processing_type = processing_type
         self.target_column = target_column
         self.scaler_X = MinMaxScaler(feature_range=(0, 1))
@@ -213,6 +213,48 @@ class Preprocessor:
             print(f"Unexpected error: {e}")  # Replace with actual logging
             raise UnexpectedError("An unexpected error occurred") from e
         
+    def prepare_multi_sequence_datasets(self):
+        fibonacci_steps = [7, 21, 49]
+        X_train_all, X_test_all = [], []
+        y_train_list, y_test_list = [], []
+        X, y = None, None
+
+        for steps in fibonacci_steps:
+            if self.processing_type == ProcessingType.TRAINING:
+                X_train, X_test, y_train, y_test = self.prepare_dataset(time_step=steps)
+                print(f"Steps: {steps}, X_train: {len(X_train)}, X_test: {len(X_test)}, y_train: {len(y_train)}, y_test: {len(y_test)}")
+                X_train_all.append(X_train)
+                X_test_all.append(X_test)
+                y_train_list.append(y_train)
+                y_test_list.append(y_test)
+            else:
+                X, y = self.prepare_dataset(time_step=steps)
+                print(f"Steps: {steps}, X: {len(X)}, y: {len(y)}")
+                X_train_all.append(X)
+                y_train_list.append(y)
+
+        if self.processing_type == ProcessingType.TRAINING:
+            # Ensure all sequences have the same length by checking minimum length
+            min_train_length = min(len(y) for y in y_train_list)
+            min_test_length = min(len(y) for y in y_test_list)
+
+            print(f"Minimum training length: {min_train_length}, Minimum testing length: {min_test_length}")
+
+            # Adjust all sequences to the minimum length without trimming targets
+            X_train_all = [X[-min_train_length:] for X in X_train_all]
+            X_test_all = [X[-min_test_length:] for X in X_test_all]
+            y_train = y_train_list[0][-min_train_length:]
+            y_test = y_test_list[0][-min_test_length:]
+
+            return X_train_all, X_test_all, y_train, y_test
+        else:
+            # For prediction, ensure the sequences have the same length
+            min_length = min(len(y) for y in y_train_list)
+            X_train_all = [X[-min_length:] for X in X_train_all]
+            y_train = y_train_list[0][-min_length:]
+
+            return X_train_all, y_train
+
     def preprocess_data_for_initial(self):
         columns_to_train = [Columns.High, Columns.Low, Columns.Close, Columns.Volume]
 
@@ -222,11 +264,11 @@ class Preprocessor:
                 predictor = PricePredictor(self._data, column)
                 predictor.train_model()
                 predictor.analyze_and_predict()
-                # self.save_predictions(predictor.data, self.target_column.name.lower())
+                self.save_predictions(predictor.data, self.target_column.name.lower())
                 predictor.save_model(
-                    f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
+                    f'{BASE_DIR}/Datas/BTCUSD/preprocessed_data/{column.name}/{column.name}_predictor.pkl')
                 
-                self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSDT/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
+                self.save_last_steps(filename=f'{BASE_DIR}/Datas/BTCUSD/preprocessed_data/{column.name}/test/{column.name}_last_steps.csv')
             except DataLoadingError as e:
                 # Handle data loading errors
                 print(f"Failed to load data for {column.name}: {e}")
@@ -242,7 +284,19 @@ class Preprocessor:
                 print(f"An unexpected error occurred for {column.name}: {e}")
                 # Depending on the severity, you might want to halt further processing or just log and continue
                 continue
-            
+    def save_predictions(self, data, target_feature):
+        directory = os.path.join(BASE_DIR, 'Datas', 'BTCUSD', 'preprocessed_data', target_feature)
+        
+        # Ensure the directory exists
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        # Save the data
+        file_path = os.path.join(directory, f'{target_feature}_prediction_preprocessed_data.csv')
+        data.to_csv(file_path, index=True)
+
+        print(f"Predictions saved to {file_path}")
+
     def preprocess_data_for_training(self):
         return self.prepare_dataset()
     
@@ -316,13 +370,11 @@ class Preprocessor:
         attr = getattr(self, f"_{self.target_column.name.lower()}")
 
         for indicator in tqdm(indicators, desc="Calculating technical indicators"):
-            if indicator in [Indicator.ATR, Indicator.STOCHASTIC_OSCILLATOR, Indicator.DONCHIAN_CHANNEL,
-                             Indicator.ADDITIONAL_INDICATORS, Indicator.LAG_FEATURES, Indicator.ROLLING_STATISTICS,
-                             Indicator.INTERACTION_FEATURES, Indicator.DIFFERENCING, Indicator.RANGE_FEATURES,
-                             Indicator.PREVIOUS_VALUES, Indicator.VOLATILITY] and self.target_column.name in ['High', 'Low', 'Volume']:
+            if indicator in [Indicator.STOCHASTIC_OSCILLATOR, Indicator.ADDITIONAL_INDICATORS, 
+                             Indicator.LAG_FEATURES, Indicator.ROLLING_STATISTICS, Indicator.INTERACTION_FEATURES, 
+                             Indicator.DIFFERENCING, Indicator.RANGE_FEATURES, Indicator.PREVIOUS_VALUES] and self.target_column.name in ['High', 'Low', 'Close', 'Volume']:
                 continue
-            if indicator in [Indicator.PREVIOUS_VALUES, Indicator.ADDITIONAL_INDICATORS, Indicator.LAG_FEATURES, Indicator.INTERACTION_FEATURES] and self.target_column.name in ['Close']:
-                continue
+            
             column_data.update(self._calculate_indicator(indicator))
 
         data = self.add_columns(column_data)

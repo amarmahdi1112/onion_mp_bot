@@ -9,6 +9,7 @@ from model_gens import lstm_model_gen, gru_model_gen
 from model_gens.utils.static.processing_type import ProcessingType
 from typing import Union
 import pandas as pd
+import numpy as np
 
 
 class ModelTrainer:
@@ -17,7 +18,7 @@ class ModelTrainer:
         model_class, 
         model_type, 
         data_path, 
-        asset_name='BTCUSDT', 
+        asset_name='BTCUSD', 
         processing_type=ProcessingType.TRAINING
     ):
         self.model_class = model_class
@@ -65,17 +66,20 @@ class ModelTrainer:
             return True
 
         return False
-
+    
     def _train_and_save_model(self):
-        X_train, X_test, y_train, y_test = self.market_predictor.preprocessor.prepare_dataset()
-        model = self.market_predictor.train_model(
-            X_train, y_train, X_test, y_test)
+        # Prepare Fibonacci datasets
+        X_train_all, X_test_all, y_train, y_test = self.market_predictor.preprocessor.prepare_multi_sequence_datasets()
 
+        # Train the model
+        model = self.market_predictor.train_model(X_train_all, y_train, X_test_all, y_test)
+
+        # Save the model and scalers
         model_path, scaler_path, shape_path, scaler_name, shape_name = self._generate_paths()
         self.market_predictor.save_models(model, model_path)
-        self.market_predictor.preprocessor.save_scaler(
-            scaler_filename=scaler_path)
+        self.market_predictor.preprocessor.save_scaler(scaler_filename=scaler_path)
 
+        # Insert training metadata into model history
         latest_data_date = self.market_predictor.preprocessor._data.index[-1]
         self.market_predictor.model_history.insert_new_training_data(
             model_table=self.model_type,
@@ -90,7 +94,7 @@ class ModelTrainer:
             shape_name=shape_name,
             notes='Training completed'
         )
-
+      
     def _generate_paths(self):
         model_subdir, scaler_subdir, shape_subdir = self._get_subdirectories()
 

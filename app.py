@@ -57,18 +57,17 @@ def main():
 
         os.system('cls' if os.name == 'nt' else 'clear')
 
+        data_path = os.path.join(BASE_DIR, 'Datas/BTCUSD')
         if args.action == 'train':
-            data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/preprocessed_data')
             # Train LSTM model
-            lstm_trainer = ModelTrainer(model_class=LSTMModel, model_type=ModelType.LSTM, data_path=data_path)
-            lstm_trainer.train()
+            # lstm_trainer = ModelTrainer(model_class=LSTMModel, model_type=ModelType.LSTM, data_path=f'{data_path}/preprocessed_data/')
+            # lstm_trainer.train()
 
             # Train GRU model
-            gru_trainer = ModelTrainer(model_class=GRUModel, model_type=ModelType.GRU, data_path=data_path)
+            gru_trainer = ModelTrainer(model_class=GRUModel, model_type=ModelType.GRU, data_path=f'{data_path}/preprocessed_data/')
             gru_trainer.train()
         elif args.action == 'process':
-            data_path = os.path.join(BASE_DIR, 'Datas/BTCUSDT/combined.csv')
-            initial_preprocessor = Preprocessor(data_path, processing_type=ProcessingType.INITIAL)
+            initial_preprocessor = Preprocessor(f'{data_path}/combined.csv', processing_type=ProcessingType.INITIAL)
             initial_preprocessor.preprocess_data_for_initial()
 
 if __name__ == "__main__":

@@ -119,7 +119,7 @@ class MarketPredictorBase(ABC):
 
     def prepare_dataset(self):
         try:
-            X_seq, y_seq = self.preprocessor.prepare_dataset()
+            X_seq, y_seq = self.preprocessor.prepare_multi_sequence_datasets()
             print(f"Feature set shape: {X_seq.shape}")
             print(f"Target shape: {y_seq.shape}")
             return X_seq, y_seq
